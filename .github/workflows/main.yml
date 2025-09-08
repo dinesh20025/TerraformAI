@@ -9,21 +9,21 @@ on:
 jobs:
   terraform:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
 
-      # Export Azure authentication secrets as environment variables
-      - name: Set up Azure credentials
-        run: |
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.ARM_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.ARM_TENANT_ID }}" >> $GITHUB_ENV
-          echo "ARM_CLIENT_ID=${{ secrets.ARM_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_CLIENT_SECRET=${{ secrets.ARM_CLIENT_SECRET }}" >> $GITHUB_ENV
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5 # pin your version
 
+      # Validate Terraform syntax and config
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Terraform Init with Azure backend
       - name: Terraform Init
         env:
           ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
@@ -31,16 +31,18 @@ jobs:
           ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
           ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }}
-        run: terraform init \
-          -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
-          -backend-config="container_name=${{ secrets.TF_STATE_CONTAINER }}" \
-          -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
-          -backend-config="access_key=${{ secrets.ARM_ACCESS_KEY }}"
+        run: |
+          terraform init \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ secrets.TF_STATE_CONTAINER }}" \
+            -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+            -backend-config="access_key=${{ secrets.ARM_ACCESS_KEY }}"
 
+      # Terraform Plan
       - name: Terraform Plan
         env:
           ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
           ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-        run: terraform plan
+        run: terraform plan -no-color
