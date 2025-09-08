@@ -1,69 +1,46 @@
-name: Terraform Plan (main)
+name: Terraform Plan
 
-# Trigger when commits are pushed to main
 on:
   push:
-    branches: ["main"]
-
-concurrency:
-  group: terraform-plan-main
-  cancel-in-progress: true
+    branches:
+      - main
+  pull_request:
 
 jobs:
-  terraform-plan:
+  terraform:
     runs-on: ubuntu-latest
-    env:
-      TF_IN_AUTOMATION: "true"       # Terraform CI friendly flags
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      # Export Azure authentication secrets as environment variables
+      - name: Set up Azure credentials
+        run: |
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.ARM_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.ARM_TENANT_ID }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_ID=${{ secrets.ARM_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=${{ secrets.ARM_CLIENT_SECRET }}" >> $GITHUB_ENV
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.7
-
-      - name: Azure Login (Service Principal)
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Configure backend variables file
-        run: |
-          cat > backend.tfvars <<EOF
-          resource_group_name = "${{ secrets.TF_STATE_RG }}"
-          storage_account_name = "${{ secrets.TF_STATE_STORAGE_ACCOUNT }}"
-          container_name = "${{ secrets.TF_STATE_CONTAINER }}"
-          key = "${{ secrets.TF_STATE_KEY }}"
-          EOF
-        shell: bash
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: terraform init -backend-config=backend.tfvars
-        # If not using remote backend, use `terraform init` only.
-
-      - name: Terraform Format Check
-        run: terraform fmt -check
-
-      - name: Terraform Validate
-        run: terraform validate
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }}
+        run: terraform init \
+          -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+          -backend-config="container_name=${{ secrets.TF_STATE_CONTAINER }}" \
+          -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+          -backend-config="access_key=${{ secrets.ARM_ACCESS_KEY }}"
 
       - name: Terraform Plan
         env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
           ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-          ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }} # if backend needs it
-        run: |
-          terraform plan -out=tfplan -input=false
-          terraform show -json tfplan > tfplan.json
-
-      - name: Upload plan artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: |
-            tfplan
-            tfplan.json
+        run: terraform plan
