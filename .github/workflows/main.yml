@@ -1,0 +1,50 @@
+name: Terraform AI Review
+
+on:
+  pull_request:
+    paths:
+      - '**/*.tf'
+
+jobs:
+  terraform-ai-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.8.5
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Show Plan JSON
+        run: terraform show -json tfplan > tfplan.json
+
+      - name: Run MCP Server (Docker)
+        run: docker run -d -v ${{ github.workspace }}:/workspace terraform-mcp:latest
+
+      - name: AI Review
+        uses: azure/openai-action@latest
+        with:
+          model: gpt-4o
+          input: tfplan.json
+          prompt: |
+            Review this Terraform plan for:
+            - Azure readiness
+            - Security issues
+            - Cost impact
+            - Best practices
+            Provide a concise PR comment with ✅/⚠️/❌.
+
+      - name: Post PR Comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: terraform-ai-review
+          message: ${{ steps.ai-review.outputs.response }}
