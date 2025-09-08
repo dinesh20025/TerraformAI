@@ -1,50 +1,69 @@
-name: Terraform AI Review
+name: Terraform Plan (main)
 
+# Trigger when commits are pushed to main
 on:
-  pull_request:
-    paths:
-      - '**/*.tf'
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: terraform-plan-main
+  cancel-in-progress: true
 
 jobs:
-  terraform-ai-review:
+  terraform-plan:
     runs-on: ubuntu-latest
-
+    env:
+      TF_IN_AUTOMATION: "true"       # Terraform CI friendly flags
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.8.5
+          terraform_version: 1.5.7
+
+      - name: Azure Login (Service Principal)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Configure backend variables file
+        run: |
+          cat > backend.tfvars <<EOF
+          resource_group_name = "${{ secrets.TF_STATE_RG }}"
+          storage_account_name = "${{ secrets.TF_STATE_STORAGE_ACCOUNT }}"
+          container_name = "${{ secrets.TF_STATE_CONTAINER }}"
+          key = "${{ secrets.TF_STATE_KEY }}"
+          EOF
+        shell: bash
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend-config=backend.tfvars
+        # If not using remote backend, use `terraform init` only.
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }} # if backend needs it
+        run: |
+          terraform plan -out=tfplan -input=false
+          terraform show -json tfplan > tfplan.json
 
-      - name: Show Plan JSON
-        run: terraform show -json tfplan > tfplan.json
-
-      - name: Run MCP Server (Docker)
-        run: docker run -d -v ${{ github.workspace }}:/workspace terraform-mcp:latest
-
-      - name: AI Review
-        uses: azure/openai-action@latest
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
         with:
-          model: gpt-4o
-          input: tfplan.json
-          prompt: |
-            Review this Terraform plan for:
-            - Azure readiness
-            - Security issues
-            - Cost impact
-            - Best practices
-            Provide a concise PR comment with ✅/⚠️/❌.
-
-      - name: Post PR Comment
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: terraform-ai-review
-          message: ${{ steps.ai-review.outputs.response }}
+          name: terraform-plan
+          path: |
+            tfplan
+            tfplan.json
