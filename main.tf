@@ -21,3 +21,12 @@ resource "azurerm_storage_data_lake_gen2_filesystem" "example" {
     hello = "aGVsbG8="
   }
 }
+
+
+module "private-market" {
+  source                    = "./modules/sandbox-green-record"
+  sandbox-green-record_path = var.sandbox-green-record_path[4]
+  ops_group_object_id       = var.ops_group_object_id
+  filesystem_name           = azurerm_storage_data_lake_gen2_filesystem.sandbox-green-record.name
+  storage_account_id        = module.main_storage_account.sa_id
+}
